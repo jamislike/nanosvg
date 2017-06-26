@@ -297,7 +297,7 @@ static void nsvg__parseElement(char* s,
 			end = 1;
 			break;
 		}
-		name = s;
+		attr[nattr++] = s;
 		// Find end of the attrib name.
 		while (*s && !nsvg__isspace(*s) && *s != '=') s++;
 		if (*s) { *s++ = '\0'; }
@@ -307,15 +307,9 @@ static void nsvg__parseElement(char* s,
 		quote = *s;
 		s++;
 		// Store value and find the end of it.
-		value = s;
+		attr[nattr++] = s;
 		while (*s && *s != quote) s++;
 		if (*s) { *s++ = '\0'; }
-
-		// Store only well formed attributes
-		if (name && value) {
-			attr[nattr++] = name;
-			attr[nattr++] = value;
-		}
 	}
 
 	// List terminator
@@ -461,6 +455,7 @@ typedef struct NSVGparser
 	char pathFlag;
 	char defsFlag;
     bool isText = false;
+    std::string textData;
 } NSVGparser;
 
 static void nsvg__xformIdentity(float* t)
@@ -943,11 +938,11 @@ static void nsvg__addShape(NSVGparser* p)
 {
 	NSVGattrib* attr = nsvg__getAttr(p);
 	float scale = 1.0f;
-	NSVGshape* shape;
+	NSVGshape *shape, *cur, *prev;
 	NSVGpath* path;
 	int i;
 
-    if (p->plist == NULL && !p->isText)
+	if (p->plist == NULL && !p->isText)
 		return;
 
 	shape = (NSVGshape*)malloc(sizeof(NSVGshape));
@@ -976,26 +971,9 @@ static void nsvg__addShape(NSVGparser* p)
 	shape->paths = p->plist;
 	p->plist = NULL;
 
-    // Calculate shape bounds
-    if(p->isText) {
-
-        float values[2];
-
-        float inv[6], localBounds[4];
-        nsvg__xformInverse(inv, attr->xform);
-
-        //End
-        values[0] = (inv[2] + inv[4]);
-        values[1] = (inv[3] + inv[5]);
-
-        nsvg__getLocalBounds(localBounds, shape, attr->xform);
-
-        shape->bounds[0] = attr->xform[4];
-        shape->bounds[1] = attr->xform[5];
-        shape->bounds[2] = attr->xform[4];
-        shape->bounds[3] = attr->xform[5];
-    } else if (shape->paths) {
-        
+	// Calculate shape bounds
+    if (shape->paths)
+    {
         shape->bounds[0] = shape->paths->bounds[0];
         shape->bounds[1] = shape->paths->bounds[1];
         shape->bounds[2] = shape->paths->bounds[2];
@@ -1006,6 +984,23 @@ static void nsvg__addShape(NSVGparser* p)
             shape->bounds[2] = nsvg__maxf(shape->bounds[2], path->bounds[2]);
             shape->bounds[3] = nsvg__maxf(shape->bounds[3], path->bounds[3]);
         }
+    } else if(p->isText) {
+    
+        float values[2];
+        
+        float inv[6], localBounds[4];
+        nsvg__xformInverse(inv, attr->xform);
+
+        //End
+        values[0] = (inv[2] + inv[4]);
+        values[1] = (inv[3] + inv[5]);
+        
+        nsvg__getLocalBounds(localBounds, shape, attr->xform);
+        
+        shape->bounds[0] = attr->xform[4];
+        shape->bounds[1] = attr->xform[5];
+        shape->bounds[2] = attr->xform[4];
+        shape->bounds[3] = attr->xform[5];
     }
 
 
@@ -1046,11 +1041,16 @@ static void nsvg__addShape(NSVGparser* p)
 	shape->flags = (attr->visible ? NSVG_FLAGS_VISIBLE : 0x00);
 
 	// Add to tail
-	if (p->image->shapes == NULL)
+	prev = NULL;
+	cur = p->image->shapes;
+	while (cur != NULL) {
+		prev = cur;
+		cur = cur->next;
+	}
+	if (prev == NULL)
 		p->image->shapes = shape;
 	else
-		p->shapesTail->next = shape;
-	p->shapesTail = shape;
+		prev->next = shape;
 
 	return;
 
@@ -2124,10 +2124,13 @@ static void nsvg__pathArcTo(NSVGparser* p, float* cpx, float* cpy, float* args, 
 //	if (vecrat(ux,uy,vx,vy) <= -1.0f) da = NSVG_PI;
 //	if (vecrat(ux,uy,vx,vy) >= 1.0f) da = 0;
 
-	if (fs == 0 && da > 0) 
-		da -= 2 * NSVG_PI;
-	else if (fs == 1 && da < 0)
-		da += 2 * NSVG_PI;
+	if (fa) {
+		// Choose large arc
+		if (da > 0.0f)
+			da = da - 2*NSVG_PI;
+		else
+			da = 2*NSVG_PI + da;
+	}
 
 	// Approximate the arc using cubic spline segments.
 	t[0] = cosrx; t[1] = sinrx;
@@ -2672,21 +2675,21 @@ static void nsvg__startElement(void* ud, const char* el, const char** attr)
 	if (strcmp(el, "g") == 0) {
 		nsvg__pushAttr(p);
 		nsvg__parseAttribs(p, attr);
-    } else if (strcmp(el, "text") == 0) {
-        nsvg__pushAttr(p);
-        nsvg__parseText(p, attr);
-        nsvg__popAttr(p);
-    } else if (strcmp(el, "path") == 0) {
+	} else if (strcmp(el, "path") == 0) {
 		if (p->pathFlag)	// Do not allow nested paths.
 			return;
 		nsvg__pushAttr(p);
 		nsvg__parsePath(p, attr);
 		nsvg__popAttr(p);
-	} else if (strcmp(el, "rect") == 0) {
+	} else if (strcmp(el, "text") == 0) {
 		nsvg__pushAttr(p);
-		nsvg__parseRect(p, attr);
+		nsvg__parseText(p, attr);
 		nsvg__popAttr(p);
-	} else if (strcmp(el, "circle") == 0) {
+    } else if (strcmp(el, "rect") == 0) {
+        nsvg__pushAttr(p);
+        nsvg__parseRect(p, attr);
+        nsvg__popAttr(p);
+    } else if (strcmp(el, "circle") == 0) {
 		nsvg__pushAttr(p);
 		nsvg__parseCircle(p, attr);
 		nsvg__popAttr(p);
@@ -2987,6 +2990,14 @@ error:
         free(res);
     }
     return NULL;
+}
+
+void nsvgAddPathToShape(NSVGshape* s, NSVGpath* p)
+{
+    if (s != NULL && p != NULL) {
+        p->next = s->paths;
+        s->paths = p;
+    }
 }
 
 NSVGshape* nsvgDuplicateShape(NSVGshape* shape)
