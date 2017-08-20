@@ -125,6 +125,7 @@ typedef struct NSVGpaint {
 } NSVGpaint;
 
 #define kMaxIDLength 256
+#define kMaxIDLengthMinusOne (kMaxIDLength-1)
 #define kMaxTextLength 256
 
 typedef struct NSVGpath
@@ -138,7 +139,7 @@ typedef struct NSVGpath
 
 typedef struct NSVGgroup
 {
-	char id[64];
+	char id[kMaxIDLength];
 	void* userData;
 	NSVGgroup* parent;			// Pointer to parent group or NULL
 	NSVGgroup* next;			// Pointer to next group or NULL
@@ -172,7 +173,9 @@ typedef struct NSVGshape
 
 typedef struct NSVGimage
 {
-	float width;				// Width of the image.
+    float version;				// Get image version number.
+    char id[kMaxIDLength];	    // Get image id.
+    float width;				// Width of the image.
 	float height;				// Height of the image.
 	NSVGshape* shapes;			// Linked list of shapes in the image.
 	NSVGgroup* groups;			// Linked list of all groups in the image
@@ -403,7 +406,7 @@ typedef struct NSVGradialData {
 
 typedef struct NSVGgradientData
 {
-	char id[64];
+	char id[kMaxIDLength];
 	char ref[64];
 	char type;
 	union {
@@ -1485,7 +1488,7 @@ static int nsvg__parseTransformArgs(const char* str, float* args, int maxNa, int
 	while (ptr < end) {
 		if (*ptr == '-' || *ptr == '+' || *ptr == '.' || nsvg__isdigit(*ptr)) {
 			if (*na >= maxNa) return 0;
-			ptr = nsvg__parseNumber(ptr, it, 64);
+			ptr = nsvg__parseNumber(ptr, it, 63);
 			args[(*na)++] = (float)atof(it);
 		} else {
 			++ptr;
@@ -1614,7 +1617,7 @@ static void nsvg__parseUrl(char* id, const char* str)
 	str += 4; // "url(";
 	if (*str == '#')
 		str++;
-	while (i < 63 && *str != ')') {
+	while (i < kMaxIDLengthMinusOne && *str != ')') {
 		id[i] = *str++;
 		i++;
 	}
@@ -1663,7 +1666,7 @@ static const char* nsvg__getNextDashItem(const char* s, char* it)
 	while (*s && (nsvg__isspace(*s) || *s == ',')) s++;
 	// Advance until whitespace, comma or end.
 	while (*s && (!nsvg__isspace(*s) && *s != ',')) {
-		if (n < 63)
+		if (n < kMaxIDLengthMinusOne)
 			it[n++] = *s;
 		s++;
 	}
@@ -1770,8 +1773,8 @@ static int nsvg__parseAttr(NSVGparser* p, const char* name, const char* value)
         strncpy(attr->fontWeight, value, 63);
         attr->id[63] = '\0';
     } else if (strcmp(name, "id") == 0) {
-        strncpy(attr->id, value, 63);
-        attr->id[63] = '\0';
+        strncpy(attr->id, value, kMaxIDLengthMinusOne);
+        attr->id[kMaxIDLengthMinusOne] = '\0';
     } else {
 		return 0;
 	}
@@ -2521,8 +2524,13 @@ static void nsvg__parseSVG(NSVGparser* p, const char** attr)
 {
 	int i;
 	for (i = 0; attr[i]; i += 2) {
-		if (!nsvg__parseAttr(p, attr[i], attr[i + 1])) {
-			if (strcmp(attr[i], "width") == 0) {
+
+        if (strcmp(attr[i], "id") == 0) {
+            strcpy(p->image->id, attr[i + 1]);
+        } else if (!nsvg__parseAttr(p, attr[i], attr[i + 1])) {
+            if (strcmp(attr[i], "version") == 0) {
+                p->image->version = atof(attr[i + 1]);
+            } else if (strcmp(attr[i], "width") == 0) {
 				p->image->width = nsvg__parseCoordinate(p, attr[i + 1], 0.0f, 1.0f);
 			} else if (strcmp(attr[i], "height") == 0) {
 				p->image->height = nsvg__parseCoordinate(p, attr[i + 1], 0.0f, 1.0f);
@@ -2580,8 +2588,8 @@ static void nsvg__parseGradient(NSVGparser* p, const char** attr, char type)
 
 	for (i = 0; attr[i]; i += 2) {
 		if (strcmp(attr[i], "id") == 0) {
-			strncpy(grad->id, attr[i+1], 63);
-			grad->id[63] = '\0';
+			strncpy(grad->id, attr[i+1], kMaxIDLength - 1);
+			grad->id[kMaxIDLengthMinusOne] = '\0';
 		} else if (!nsvg__parseAttr(p, attr[i], attr[i + 1])) {
 			if (strcmp(attr[i], "gradientUnits") == 0) {
 				if (strcmp(attr[i+1], "objectBoundingBox") == 0)
@@ -2675,11 +2683,11 @@ static void nsvg__parseGroup(NSVGparser* p, const char** attrs)
 	NSVGattrib* attr = nsvg__getAttr(p);
 	
 	nsvg__parseAttribs(p, attrs);
-	if (!*attr->id) //skip anonymous groups
-		return;
+//	if (!*attr->id) //skip anonymous groups
+//		return;
 	
-	group = (NSVGgroup*)malloc(sizeof NSVGgroup);
-	memset(group, 0, sizeof NSVGgroup);
+	group = (NSVGgroup*)malloc( sizeof(NSVGgroup) );
+	memset(group, 0, sizeof(NSVGgroup) );
 	memcpy(group->id, attr->id, sizeof(group->id));
 	group->parent = attr->group;
 	attr->group = group;
@@ -3093,6 +3101,24 @@ NSVGshape* nsvgDuplicateShape(NSVGshape* shape)
     return res;
 }
 
+
+NSVGgroup* nsvgDuplicateGroup(NSVGgroup* group)
+{
+    NSVGgroup* res = NULL;
+
+    if (group == NULL)
+        return NULL;
+
+    res = (NSVGgroup*)malloc(sizeof(NSVGgroup));
+    if (res == NULL)
+    {
+        return res;
+    }
+    memset(res, 0, sizeof(NSVGgroup));
+
+    return res;
+}
+
 NSVGimage* nsvgDuplicateImage(NSVGimage* image)
 {
     NSVGimage* res = NULL;
@@ -3113,6 +3139,11 @@ NSVGimage* nsvgDuplicateImage(NSVGimage* image)
     if (image->shapes != NULL)
     {
         res->shapes = nsvgDuplicateShape(image->shapes);
+    }
+
+    if (image->groups != NULL)
+    {
+        res->groups = nsvgDuplicateGroup(image->groups);
     }
     return res;
 }
