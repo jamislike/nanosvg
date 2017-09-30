@@ -167,7 +167,7 @@ typedef struct NSVGshape
     char fontFamily[64];
     char fontWeight[64];
     float fontSize;
-    bool isText = false;
+    char isText = 0;
     char textData[kMaxTextLength];
 } NSVGshape;
 
@@ -468,8 +468,8 @@ typedef struct NSVGparser
 	float dpi;
 	char pathFlag;
 	char defsFlag;
-    bool isText = false;
-    std::string textData;
+    //std::string textData;
+    char isText;
 } NSVGparser;
 
 static void nsvg__xformIdentity(float* t)
@@ -656,7 +656,7 @@ static NSVGparser* nsvg__createParser()
 	p->attr[0].fillRule = NSVG_FILLRULE_NONZERO;
 	p->attr[0].hasFill = 1;
 	p->attr[0].visible = 1;
-    p->isText = false;
+    p->isText = 0;
 
 	return p;
 
@@ -957,7 +957,7 @@ static void nsvg__addShape(NSVGparser* p)
 	NSVGpath* path;
 	int i;
 
-	if (p->plist == NULL && !p->isText)
+    if (p->plist == NULL && (p->isText == 0) )
 		return;
 
 	shape = (NSVGshape*)malloc(sizeof(NSVGshape));
@@ -1000,8 +1000,7 @@ static void nsvg__addShape(NSVGparser* p)
             shape->bounds[2] = nsvg__maxf(shape->bounds[2], path->bounds[2]);
             shape->bounds[3] = nsvg__maxf(shape->bounds[3], path->bounds[3]);
         }
-    } else if(p->isText) {
-    
+    } else if(p->isText == 1) {
         float values[2];
         
         float inv[6], localBounds[4];
@@ -1018,7 +1017,6 @@ static void nsvg__addShape(NSVGparser* p)
         shape->bounds[2] = attr->xform[4];
         shape->bounds[3] = attr->xform[5];
     }
-
 
 	// Set fill
 	if (attr->hasFill == 0) {
@@ -2389,7 +2387,7 @@ static void nsvg__parseText(NSVGparser* p, const char** attr)
 
         }
     }
-    p->isText = true;
+    p->isText = 1;
 
     nsvg__addShape(p);
 }
