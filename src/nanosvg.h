@@ -1000,7 +1000,9 @@ static void nsvg__addShape(NSVGparser* p)
             shape->bounds[2] = nsvg__maxf(shape->bounds[2], path->bounds[2]);
             shape->bounds[3] = nsvg__maxf(shape->bounds[3], path->bounds[3]);
         }
-    } else if(p->isText == 1) {
+    }
+    else if(p->isText == 1)
+    {
         float values[2];
         
         float inv[6], localBounds[4];
